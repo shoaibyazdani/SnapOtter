@@ -26,6 +26,7 @@ import {
 } from "../../lib/format-decoders.js";
 import { encodeJxl } from "../../lib/format-encoders.js";
 import { decodeHeic, encodeHeic } from "../../lib/heic-converter.js";
+import { logger } from "../../lib/logger.js";
 import { multipartFailure } from "../../lib/multipart-parts.js";
 import { getObjectBuffer, putObject } from "../../lib/object-storage.js";
 import { resolveOutputFormat } from "../../lib/output-format.js";
@@ -365,7 +366,11 @@ export function registerUpscale(app: FastifyInstance) {
           },
         };
       } finally {
-        if (needsCleanup) await rm(scratchDir, { recursive: true, force: true }).catch(() => {});
+        if (needsCleanup) {
+          await rm(scratchDir, { recursive: true, force: true }).catch((err) => {
+            logger.error({ err, scratchDir }, "Failed to clean up upscale scratch directory");
+          });
+        }
       }
     },
   });
