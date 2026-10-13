@@ -23,7 +23,9 @@
 set -euo pipefail
 
 SCREENSHOTS="tests/e2e/__screenshots__"
-TITLE="test(e2e): refresh linux visual baselines"
+# OS_LABEL is set by the workflow matrix leg; falls back to "linux" for
+# callers (and historical single-OS workflow runs) that don't set it.
+TITLE="test(e2e): refresh ${OS_LABEL:-linux} visual baselines"
 
 summary() {
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

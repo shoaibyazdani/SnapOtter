@@ -21,13 +21,29 @@ permissions:
 
 jobs:
   update-baselines:
-    name: Regenerate linux visual baselines
-    runs-on: ubuntu-latest
+    # One leg per supported OS so the regenerated *-linux.png and
+    # *-darwin.png baselines ship in the same workflow dispatch instead of
+    # only the linux ones. Without this, any copy change in a chromium-
+    # visual test desyncs the darwin pair until someone with a Mac runs
+    # the regenerate command by hand (issue #2042).
+    name: Regenerate ${{ matrix.os-label }} visual baselines
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os-label: linux
+          - os: macos-latest
+            os-label: darwin
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
-      # One name per run attempt, so a re-run never collides with the
-      # artifact or branch an earlier attempt left behind.
-      ARTIFACT_NAME: visual-baselines-${{ github.run_id }}-${{ github.run_attempt }}
+      # OS_LABEL is read by scripts/visual-baselines-pr.sh to name the
+      # regenerated-baselines commit/PR.
+      OS_LABEL: ${{ matrix.os-label }}
+      # One name per (run, attempt, os) so the two legs never collide on
+      # the artifact or on the branch.
+      ARTIFACT_NAME: visual-baselines-${{ matrix.os-label }}-${{ github.run_id }}-${{ github.run_attempt }}
       # Read by the regenerate step and named in the PR body, from one place.
       UPDATE_SNAPSHOTS: ${{ inputs.update_snapshots || 'changed' }}
     # The e2e webServer (playwright.config.ts) creates an isolated database via
@@ -108,7 +124,7 @@ jobs:
         if: ${{ !cancelled() && steps.collect.outcome == 'success' && steps.collect.outputs.count != '0' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: chore/visual-baselines-${{ github.run_id }}-${{ github.run_attempt }}
+          BRANCH: chore/visual-baselines-${{ matrix.os-label }}-${{ github.run_id }}-${{ github.run_attempt }}
           BASE_BRANCH: main
           SOURCE_REF: ${{ github.ref_name }}
           SOURCE_SHA: ${{ github.sha }}
