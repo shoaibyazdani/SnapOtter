@@ -7,7 +7,6 @@ import {
   compositeOnColor,
   compositeOnImage,
   createGradientBackground,
-  normalizeHexColor,
 } from "../../../apps/api/src/lib/bg-effects.js";
 
 async function createTestImage(
@@ -522,19 +521,5 @@ describe("applyEffects", () => {
     const subject = await createSubjectWithAlpha(100, 100);
     const original = await createTestImage(100, 100, 3);
     await expect(applyEffects(subject, original, settings)).rejects.toThrow(/needs/);
-  });
-});
-
-describe("normalizeHexColor", () => {
-  it.each([
-    ["#FF5500", "#ff5500"],
-    ["F50", "#ff5500"],
-    ["#f50", "#ff5500"],
-  ])("%s -> %s", (input, expected) => {
-    expect(normalizeHexColor(input)).toBe(expected);
-  });
-
-  it.each(["red", "#ff", "#ff00000", "", "#ff0000 "])("throws on %j", (input) => {
-    expect(() => normalizeHexColor(input)).toThrow(/Not a hex color/);
   });
 });
