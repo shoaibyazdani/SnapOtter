@@ -7,7 +7,7 @@
  * testing validation paths.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fixtures, readFixture } from "../../../fixtures/index.js";
 import {
   buildTestApp,
@@ -360,4 +360,29 @@ describe("Upscale", () => {
     expect(res.statusCode).toBe(202);
     expect(elapsed).toBeLessThan(30_000);
   }, 60_000);
+
+  describe("Pipeline Schema (Issue 2362)", () => {
+    it("registered tool config has the complete schema to prevent stripping in batch/pipeline", async () => {
+      const { toolRegistry } = await import("../../../apps/api/src/routes/tools/index.js");
+      const config = toolRegistry.get("upscale");
+      expect(config).toBeDefined();
+
+      const payload = {
+        scale: 4,
+        model: "realesrgan-x4plus",
+        faceEnhance: true,
+        denoise: 15,
+        format: "webp",
+        quality: 85,
+      };
+
+      const parsed = config.settingsSchema.parse(payload);
+
+      expect(parsed).toHaveProperty("model", "realesrgan-x4plus");
+      expect(parsed).toHaveProperty("faceEnhance", true);
+      expect(parsed).toHaveProperty("denoise", 15);
+      expect(parsed).toHaveProperty("format", "webp");
+      expect(parsed).toHaveProperty("quality", 85);
+    });
+  });
 });
