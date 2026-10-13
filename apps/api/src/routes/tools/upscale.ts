@@ -44,6 +44,32 @@ const settingsSchema = z.object({
   quality: z.union([z.number(), z.string()]).transform(Number).default(95),
 });
 
+const EXT_MAP: Record<string, string> = {
+  jpeg: "jpg",
+  jpg: "jpg",
+  png: "png",
+  webp: "webp",
+  tiff: "tiff",
+  gif: "gif",
+  avif: "avif",
+  heic: "heic",
+  heif: "heif",
+  jxl: "jxl",
+};
+
+const CONTENT_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  tiff: "image/tiff",
+  gif: "image/gif",
+  avif: "image/avif",
+  heic: "image/heic",
+  heif: "image/heif",
+  jxl: "image/jxl",
+};
+
 // ── AI job handler (runs inside the BullMQ worker) ────────────────
 registerAiJobHandler("upscale", async (input, data, ctx) => {
   const settings = settingsSchema.parse(data.settings);
@@ -92,33 +118,8 @@ registerAiJobHandler("upscale", async (input, data, ctx) => {
     }
   }
 
-  const EXT_MAP: Record<string, string> = {
-    jpeg: "jpg",
-    jpg: "jpg",
-    png: "png",
-    webp: "webp",
-    tiff: "tiff",
-    gif: "gif",
-    avif: "avif",
-    heic: "heic",
-    heif: "heif",
-    jxl: "jxl",
-  };
   const ext = EXT_MAP[finalFormat] || "png";
   const outputFilename = `${data.filename.replace(/\.[^.]+$/, "")}_${scale}x.${ext}`;
-
-  const CONTENT_TYPES: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    webp: "image/webp",
-    tiff: "image/tiff",
-    gif: "image/gif",
-    avif: "image/avif",
-    heic: "image/heic",
-    heif: "image/heif",
-    jxl: "image/jxl",
-  };
 
   return {
     buffer: outputBuffer,
@@ -327,33 +328,8 @@ export function registerUpscale(app: FastifyInstance) {
           }
         }
 
-        const EXT_MAP: Record<string, string> = {
-          jpeg: "jpg",
-          jpg: "jpg",
-          png: "png",
-          webp: "webp",
-          tiff: "tiff",
-          gif: "gif",
-          avif: "avif",
-          heic: "heic",
-          heif: "heif",
-          jxl: "jxl",
-        };
         const ext = EXT_MAP[finalFormat] || "png";
         const outputFilename = `${filename.replace(/\.[^.]+$/, "")}_${scale}x.${ext}`;
-
-        const CONTENT_TYPES: Record<string, string> = {
-          png: "image/png",
-          jpg: "image/jpeg",
-          jpeg: "image/jpeg",
-          webp: "image/webp",
-          tiff: "image/tiff",
-          gif: "image/gif",
-          avif: "image/avif",
-          heic: "image/heic",
-          heif: "image/heif",
-          jxl: "image/jxl",
-        };
 
         return {
           buffer: outputBuffer,
