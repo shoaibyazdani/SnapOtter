@@ -151,8 +151,9 @@ function run(ctx: ReturnType<typeof setup>, args: string[], env: Record<string, 
       SOURCE_REF: "main",
       RETRY_DELAY: "0",
       ARTIFACT_NAME: ARTIFACT,
-      // The developer's shell must not pick the PR body's mode.
+      // The developer's shell must not pick the PR body's mode or OS label.
       UPDATE_SNAPSHOTS: "",
+      OS_LABEL: "",
       ...env,
     },
   });
@@ -419,6 +420,40 @@ exec "${realGit}" "$@"`,
     expect(git(ctx.origin, "branch", "--list", BRANCH)).toBe("");
     expect(pushed.gh).toBe("");
   });
+
+  it("uses OS_LABEL for the commit and PR title when set and defaults to linux", () => {
+    const defaultCtx = setup();
+    const { pushed: defaultPushed } = collectAndPush(defaultCtx);
+
+    expect(defaultPushed.status, defaultPushed.stderr).toBe(0);
+    expect(git(defaultCtx.origin, "log", "-1", "--format=%s", BRANCH)).toBe(
+      "test(e2e): refresh linux visual baselines",
+    );
+    expect(flagValue(ghArgs(defaultPushed.gh), "--title")).toBe(
+      "test(e2e): refresh linux visual baselines",
+    );
+
+    const darwinCtx = setup();
+    const { pushed: darwinPushed } = collectAndPush(darwinCtx, { OS_LABEL: "darwin" });
+
+    expect(darwinPushed.status, darwinPushed.stderr).toBe(0);
+    expect(git(darwinCtx.origin, "log", "-1", "--format=%s", BRANCH)).toBe(
+      "test(e2e): refresh darwin visual baselines",
+    );
+    expect(flagValue(ghArgs(darwinPushed.gh), "--title")).toBe(
+      "test(e2e): refresh darwin visual baselines",
+    );
+  });
+
+  it("rejects an unsupported OS_LABEL before touching git", () => {
+    const ctx = setup();
+    const { list } = collect(ctx);
+    const pushed = run(ctx, ["push", list], { OS_LABEL: "windows" });
+
+    expect(pushed.status).toBe(2);
+    expect(pushed.stderr).toContain("Invalid OS_LABEL: windows");
+    expect(git(ctx.origin, "branch", "--list", BRANCH)).toBe("");
+  });
 });
 
 interface Step {
@@ -445,7 +480,19 @@ interface DispatchInput {
 describe("update-visual-baselines.yml", () => {
   const workflow = load(readFileSync(WORKFLOW, "utf8")) as {
     on: { workflow_dispatch: { inputs?: Record<string, DispatchInput> } | null };
-    jobs: Record<string, { steps: Step[]; env?: Record<string, string> }>;
+    jobs: Record<
+      string,
+      {
+        "runs-on"?: string;
+        strategy?: {
+          "fail-fast"?: boolean;
+          matrix?: { include?: Array<{ os?: string; "os-label"?: string }> };
+        };
+        services?: Record<string, { image?: string }>;
+        steps: Step[];
+        env?: Record<string, string>;
+      }
+    >;
   };
   const job = workflow.jobs["update-baselines"];
   const steps = job.steps;
@@ -459,6 +506,34 @@ describe("update-visual-baselines.yml", () => {
   const collectStep = find((step) => step.run?.includes("visual-baselines-pr.sh collect") ?? false);
   const upload = find((step) => step.id === "upload");
   const push = find((step) => step.run?.includes("visual-baselines-pr.sh push") ?? false);
+
+  it("runs both linux and darwin legs with OS-appropriate services and browser cache paths (#2042)", () => {
+    expect(job["runs-on"]).toBe(expr("matrix.os"));
+    expect(job.strategy?.["fail-fast"]).toBe(false);
+    expect(job.strategy?.matrix?.include).toEqual([
+      { os: "ubuntu-latest", "os-label": "linux" },
+      { os: "macos-latest", "os-label": "darwin" },
+    ]);
+    expect(job.env?.OS_LABEL).toBe(expr("matrix.os-label"));
+
+    // Docker service containers are Linux-only in GitHub Actions; an empty
+    // image expression skips container creation on macos-latest while the
+    // macOS step starts Postgres 17 and Redis via Homebrew before regenerate.
+    expect(job.services?.postgres?.image).toBe(
+      expr("matrix.os-label == 'linux' && 'postgres:17-alpine' || ''"),
+    );
+    expect(job.services?.redis?.image).toBe(
+      expr("matrix.os-label == 'linux' && 'redis:8-alpine' || ''"),
+    );
+    const macServices = find((step) => step.if === "runner.os == 'macOS'");
+    expect(macServices).toBeLessThan(regenerate);
+    expect(steps[macServices].run).toContain("postgresql@17");
+    expect(steps[macServices].run).toContain("redis");
+
+    const cache = steps.find((step) => step.uses?.startsWith("actions/cache@"));
+    expect(cache?.with?.path).toContain("~/.cache/ms-playwright");
+    expect(cache?.with?.path).toContain("~/Library/Caches/ms-playwright");
+  });
 
   it("keeps going past a failing regenerate step, then fails the job", () => {
     expect(steps[regenerate]["continue-on-error"]).toBe(true);
@@ -532,6 +607,7 @@ describe("update-visual-baselines.yml", () => {
     expect(steps[collectStep].run).toContain('"$RUNNER_TEMP/visual-baselines"');
     expect(steps[upload].with?.path).toBe(`${expr("runner.temp")}/visual-baselines/`);
     expect(steps[upload].with?.name).toBe(expr("env.ARTIFACT_NAME"));
+    expect(job.env?.ARTIFACT_NAME).toContain(expr("matrix.os-label"));
     expect(job.env?.ARTIFACT_NAME).toContain(expr("github.run_attempt"));
     expect(steps[push].env?.UPLOAD_OUTCOME).toBe(expr("steps.upload.outcome"));
   });
@@ -542,10 +618,10 @@ describe("update-visual-baselines.yml", () => {
     expect(fallback?.with?.path).toBe("tests/e2e/__screenshots__/");
   });
 
-  it("pushes onto main under a branch unique to the run attempt", () => {
+  it("pushes onto main under a branch unique to the OS and run attempt", () => {
     expect(steps[push].env?.BASE_BRANCH).toBe("main");
     expect(steps[push].env?.BRANCH).toContain(
-      `${expr("github.run_id")}-${expr("github.run_attempt")}`,
+      `${expr("matrix.os-label")}-${expr("github.run_id")}-${expr("github.run_attempt")}`,
     );
     const inline = steps.filter((step) => /git (commit|push)\b/.test(step.run ?? ""));
     expect(inline).toEqual([]);

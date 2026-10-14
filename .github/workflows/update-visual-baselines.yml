@@ -23,9 +23,10 @@ jobs:
   update-baselines:
     # One leg per supported OS so the regenerated *-linux.png and
     # *-darwin.png baselines ship in the same workflow dispatch instead of
-    # only the linux ones. Without this, any copy change in a chromium-
-    # visual test desyncs the darwin pair until someone with a Mac runs
-    # the regenerate command by hand (issue #2042).
+    # only the linux ones. Without this, any copy change in a visual test
+    # (chromium-visual, mobile-chromium, tablet-chromium) desyncs the darwin
+    # baselines until someone with a Mac runs the regenerate command by hand
+    # (issue #2042).
     name: Regenerate ${{ matrix.os-label }} visual baselines
     strategy:
       fail-fast: false
@@ -48,10 +49,12 @@ jobs:
       UPDATE_SNAPSHOTS: ${{ inputs.update_snapshots || 'changed' }}
     # The e2e webServer (playwright.config.ts) creates an isolated database via
     # tests/e2e-pg-create-db.cjs, so it needs Postgres + Redis on localhost.
-    # Without these services the webServer fails with "failed to create database".
+    # Service containers only run on Linux runners, so the image expressions
+    # evaluate to empty strings on macos-latest and the macOS leg starts
+    # Postgres and Redis via Homebrew below.
     services:
       postgres:
-        image: postgres:17-alpine
+        image: ${{ matrix.os-label == 'linux' && 'postgres:17-alpine' || '' }}
         env:
           POSTGRES_USER: snapotter
           POSTGRES_PASSWORD: snapotter
@@ -64,7 +67,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
       redis:
-        image: redis:8-alpine
+        image: ${{ matrix.os-label == 'linux' && 'redis:8-alpine' || '' }}
         ports:
           - 6379:6379
         options: >-
@@ -75,13 +78,33 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup
+      - name: Start Postgres and Redis on macOS
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install postgresql@17 redis
+          PG_BIN="$(brew --prefix postgresql@17)/bin"
+          echo "$PG_BIN" >> "$GITHUB_PATH"
+          export PATH="$PG_BIN:$PATH"
+          brew services start postgresql@17
+          brew services start redis
+          for _ in $(seq 1 30); do pg_isready -h localhost && break; sleep 1; done
+          pg_isready -h localhost
+          for _ in $(seq 1 30); do redis-cli -h localhost ping && break; sleep 1; done
+          redis-cli -h localhost ping
+          psql -h localhost postgres -c "CREATE ROLE snapotter WITH LOGIN SUPERUSER PASSWORD 'snapotter';"
+          createdb -h localhost -O snapotter snapotter
       - name: Get Playwright version
         id: pw-version
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/ms-playwright
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
       - name: Install Playwright browsers
         run: pnpm playwright install --with-deps chromium

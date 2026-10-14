@@ -19,13 +19,21 @@
 #
 # Env for push: BRANCH (required), BASE_BRANCH, SOURCE_REF, SOURCE_SHA,
 # REGENERATE_OUTCOME, UPDATE_SNAPSHOTS, ARTIFACT_NAME, UPLOAD_OUTCOME,
-# RUN_URL, PUSH_ATTEMPTS, RETRY_DELAY.
+# RUN_URL, PUSH_ATTEMPTS, RETRY_DELAY, OS_LABEL.
 set -euo pipefail
 
 SCREENSHOTS="tests/e2e/__screenshots__"
 # OS_LABEL is set by the workflow matrix leg; falls back to "linux" for
 # callers (and historical single-OS workflow runs) that don't set it.
-TITLE="test(e2e): refresh ${OS_LABEL:-linux} visual baselines"
+OS_LABEL="${OS_LABEL:-linux}"
+case "$OS_LABEL" in
+  linux | darwin) ;;
+  *)
+    echo "Invalid OS_LABEL: $OS_LABEL (expected linux or darwin)" >&2
+    exit 2
+    ;;
+esac
+TITLE="test(e2e): refresh ${OS_LABEL} visual baselines"
 
 summary() {
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
